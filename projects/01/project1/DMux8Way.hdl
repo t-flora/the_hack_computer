@@ -1,0 +1,51 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/01/DMux8Way.hdl
+
+/**
+ * 8-way demultiplexor:
+ * {a, b, c, d, e, f, g, h} = {in, 0, 0, 0, 0, 0, 0, 0} if sel == 000
+ *                            {0, in, 0, 0, 0, 0, 0, 0} if sel == 001
+ *                            etc.
+ *                            {0, 0, 0, 0, 0, 0, 0, in} if sel == 111
+ */
+
+CHIP DMux8Way {
+    IN in, sel[3];
+    OUT a, b, c, d, e, f, g, h;
+
+    PARTS:
+    // Put your code here:
+    Not(in=sel[0], out=notsel0);
+    Not(in=sel[1], out=notsel1);
+    Not(in=sel[2], out=notsel2);
+
+    //DMux4Way(in=in, sel=sel[1..2], a=a, b=b, c=c, d=d);
+    //DMux4Way(in=in, sel=sel[0..1], a=e, b=f, c=g, d=h);
+
+    And(a=notsel2, b=notsel1, out=zzu);
+    And(a=zzu, b=notsel0, out=zzz);
+    And(a=zzu, b=sel[0], out=zzo);
+
+    And(a=notsel2, b=sel[1], out=zou);
+    And(a=zou, b=notsel0, out=zoz);
+    And(a=zou, b=sel[0], out=zoo);
+
+    And(a=sel[2], b=notsel1, out=ozu);
+    And(a=ozu, b=notsel0, out=ozz);
+    And(a=ozu, b=sel[0], out=ozo);
+
+    And(a=sel[2], b=sel[1], out=oou);
+    And(a=oou, b=notsel0, out=ooz);
+    And(a=oou, b=sel[0], out=ooo);
+
+    And(a=zzz, b=in, out=a);
+    And(a=zzo, b=in, out=b);
+    And(a=zoz, b=in, out=c);
+    And(a=zoo, b=in, out=d);
+    And(a=ozz, b=in, out=e);
+    And(a=ozo, b=in, out=f);
+    And(a=ooz, b=in, out=g);
+    And(a=ooo, b=in, out=h);
+}
