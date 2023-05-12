@@ -56,9 +56,9 @@ CHIP ALU {
    Mux16(a=f0, b=f1, sel=f, out=fOut);
 
    Not16(in=fOut, out=nfOut);
-   Mux16(a=fOut, b=nfOut, sel=no, out=out, out=out1, out[15]=msb);
+   Mux16(a=fOut, b=nfOut, sel=no, out=out, out=out1, out[15]=ng, out[15]=ng1);
 
-   And(a=msb, b=msb, out=ng, out=ng1);
+   // Zero check depends on checking for negativity, incrementing, and checking MSB
    Mux(a=true, b=false, sel=ng1, out=maybeZr);
    Not16(in=out1, out=notOut);
    Inc16(in=notOut, out[15]=notOutInc);
