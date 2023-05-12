@@ -16,5 +16,11 @@ CHIP PC {
     OUT out[16];
 
     PARTS:
-    // Put your code here:
+    // Thinking from the lowest condition to the highest:
+    Inc16(in=firstIn, out=incOut);
+    Mux16(a=firstIn, b=incOut, sel=inc, out=out1); // First check inc condition
+    Mux16(a=out1, b=in, sel=load, out=out2); // Then check load condition
+    Mux16(a=out2, b=false, sel=reset, out=lastOut); // Finally check the reset bit
+
+    Register(in=lastOut, load=true, out=firstIn, out=out);
 }
