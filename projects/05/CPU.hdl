@@ -1,0 +1,93 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // Put your code here:
+    // Use opcode to either send instruction or ALU output to A register
+    Mux16(a=instruction, b=aluOut, sel=instruction[15], out=muxOut1); // This is correct
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+    /////////// REFLECTION: should the output of the ALU only be written to A when d1 is 1? //////////
+    //////////////////////////////////////////////////////////////////////////////////////////////////
+
+    // load bit is d1 for the A register
+    Not(in=instruction[15], out=aInstOp);
+    Or(a=aInstOp, b=instruction[5], out=loadAReg);
+    ARegister(in=muxOut1, load=loadAReg, out=ARegOut, out[0..14]=addressM); // Issue with the load bit
+
+    // a-bit determines whether ALU operates on A register or M input
+    And(a=instruction[15], b=instruction[12], out=cInstOperate); // Assert that it is a C-instruction to operate on M input
+    Mux16(a=ARegOut, b=inM, sel=instruction[12], out=muxOut2); // sel = cInstOperate
+
+    // load bit is d2 for the D register
+    And(a=instruction[15], b=instruction[4], out=d2CInst);
+    DRegister(in=aluOut, load=d2CInst, out=DRegOut);
+
+    // ALU takes input from second Mux or from data register
+    ALU(x=DRegOut, y=muxOut2, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8], f=instruction[7], no=instruction[6], out=aluOut, out=outM, zr=aluZr, ng=aluNg);
+
+    // Jump logic //
+    // Compute whether or not there is a jump
+    // Load is true when conditions are met => j1==ng OR j2==zr OR j3==!ng // This is the hardest part of the CPU to wrap your head around. You don't need the bits
+    // to be equal to realize the jump, as I was checking at first, but for (j1 and ng) or (j2 and zr) or (j3 and !ng) both be 1 otherwise (0,0,0) could get you to jump
+
+    // check if j1 and ng
+    And(a=instruction[2], b=aluNg, out=j1Check);
+
+    // check if j3==!ng since j3 if outM>0
+    Not(in=aluNg, out=notNegative);
+    Not(in=aluZr, out=notZr);
+    And(a=notNegative, b=instruction[0], out=notNgCheck);
+    And(a=notZr, b=notNgCheck, out=j3Check);
+    
+    // Check if j2==zr
+    And(a=instruction[1], b=aluZr, out=j2Check);
+
+    // Check conditions
+    Or(a=j1Check, b=j2Check, out=j1j2Met);
+    Or(a=j1j2Met, b=j3Check, out=pcLoadBit);
+    And(a=pcLoadBit, b=instruction[15], out=pcLoadBitC);
+    
+    Not(in=pcLoadBitC, out=noJMP);
+
+    PC(in=ARegOut, load=pcLoadBitC, inc=noJMP, reset=reset, out[0..14]=pc);
+
+    And(a=instruction[3], b=instruction[15], out=writeM); // writeM is the assertion that both d3 and i are true
+}
