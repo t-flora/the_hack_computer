@@ -31,6 +31,7 @@ class Parser:
     def __init__(self, input_file: str) -> None:
         """Opens the input file and gets ready to parse it
 
+        Args:
             input_file (str): assembly file path
         """
         self.line = 0
@@ -53,14 +54,13 @@ class Parser:
     def has_more_commands(self) -> bool:
         """Boolean for whether there are more commands in the input
 
-            returns bool: comparison between current line and length of commands
+            Returns:
+                bool: comparison between current line and length of commands
         """
         return len(self.commands) > self.line
 
     def advance(self) -> None:
         """Reads the next comand from the input and makes it the current command 
-
-            returns None
         """
         if self.has_more_commands():
             self.line += 1
@@ -69,7 +69,8 @@ class Parser:
     def command_type(self) -> Command:
         """Returns teh type of the current command
             
-            returns Command[.A_COMMAND, C_COMMAND, L_COMMAND]: Command type of current command
+            Returns:
+                Command[.A_COMMAND, C_COMMAND, L_COMMAND]: Command type of current command
         """
         if self.current_cmd[0] == "@":
             return Command.A_COMMAND
@@ -81,7 +82,8 @@ class Parser:
     def symbol(self) -> str:
         """Returns the symbol or decimal value of a current A or L command.
 
-            returns str: symbol used to access A register value
+            Returns:
+                str: symbol used to access A register value
         """
         if self.command_type() == Command.A_COMMAND:
             return self.current_cmd[1:]
@@ -91,7 +93,8 @@ class Parser:
     def dest(self) -> str | None:
         """Returns the dest mnemonic in the current C-command
 
-            returns str | None: dest mnemonic string of C command
+            Returns:
+                str | None: dest mnemonic string of C command
         """
         if '=' in self.current_cmd and self.command_type() == Command.C_COMMAND:
             return self.current_cmd.split('=')[0].strip()
@@ -101,7 +104,8 @@ class Parser:
     def comp(self) -> str:
         """Returns the comp mnemonic in the current C-command
 
-            returns str | None: comp mnemonic string of C command
+            Returns:
+                str | None: comp mnemonic string of C command
         """
         if self.command_type() == Command.C_COMMAND:
             if self.dest() is not None:
@@ -112,7 +116,8 @@ class Parser:
     def jump(self) -> str | None:
         """Returns the jump mnemonic in the current C-command
 
-            returns str | None: jump mnemonic string of C command
+            Returns:
+                str | None: jump mnemonic string of C command
         """
         if ';' in self.current_cmd and self.command_type() == Command.C_COMMAND:
             return self.current_cmd.split(';')[1].strip()
@@ -177,23 +182,43 @@ class Code:
         pass
 
     def dest(self, cmd: str) -> str:
-        pass
+        return Code.DEST[cmd]
 
     def comp(self, cmd: str) -> str:
-        pass
+        return Code.COMP[cmd]
 
     def jump(self, cmd: str) -> str:
-        pass
+        return Code.JUMP[cmd]
 
 class SymbolTable:
+
+    PREDEF_SYMBOLS = {
+        "SP": "0",
+        "LCL": "1",
+        "ARG": "2",
+        "THIS": "3",
+        "THAT": "4",
+        "SCREEN": "16384",
+        "LCL": "24576",
+    }
 
     def __init__(self):
         self.table: dict = {}
 
     def add_entry(self, symbol: str, addr: int) -> None:
+        """Adds a pair (symbol, addr) to symbol table
+        """
         self.table[symbol] = addr
 
     def contains(self, symbol: str) -> bool:
+        """Checks whether symbol is present in symbol table
+
+        Args:
+            symbol (str): Symbol for lookup
+
+        Returns:
+            bool: True if symbol is in table, False if otherwise
+        """
         return self.table.get(symbol, 0) != 0
 
     def get_addr(self, symbol: str) -> int:
