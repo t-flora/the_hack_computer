@@ -4,16 +4,17 @@ import re
 class Assembler:
     
     def __init__(self, file: str) -> None:
-        self.filename, _, _ = file.partition('\.')
+        self.filename, _, self.ext = file.partition('.')
+        assert(self.ext == "asm")
         self.parser = Parser(file)
         self.symbol_table = SymbolTable()
         self.curr_ROM_addr = 0
         self.binaries = [0 * (2*15)] # ROM
 
-    def first_pass(self):
+    def first_pass(self) -> None:
         while self.parser.has_more_commands():
             match self.parser.command_type:
-                case Command.A_COMMAND:
+                case Command.A_COMMAND: # UNDER ASSUMPTION THAT WILL BE NUMERIC
                     self.binaries[self.curr_ROM_addr] = bin(int(self.parser.current_cmd)).zfill(16)
 
                 case Command.C_COMMAND:
@@ -30,7 +31,7 @@ class Assembler:
             self.curr_ROM_addr += 1
             self.parser.advance()
 
-    def second_pass(self):
+    def second_pass(self) -> None:
         pass
     #         Now go again through the entire program, and parse each line. Each
     # time a symbolic A-instruction is encountered, namely, @Xxx where Xxx is a symbol
@@ -56,16 +57,17 @@ class Assembler:
             # If number, convert to binary and left-pad
 
         
-        while self.parser.has_more_commands():
-            pass # haha
+        # while self.parser.has_more_commands():
+        #     pass
 
-    def assemble(self):
+    def assemble(self, output_file: str | None = None) -> None:
         self.first_pass()
         # get list of commands
-        binaries = []
-        with open(self.filename + ".hack", "w") as f:
-            for cmd in binaries:
-                f.write(cmd + '\n')
+        op = output_file if output_file else self.filename[:-len(self.ext)]
+        
+        with open(op + ".hack", "w") as f:
+            for cmd in self.binaries:
+                f.write(str(cmd) + '\n')
 
 
 class Command(Enum):
