@@ -1,19 +1,71 @@
 from enum import Enum, auto
-from typing import TextIO
 import re
 
 class Assembler:
     
-    def __init__(self, file: TextIO):
-        self.file = file
+    def __init__(self, file: str) -> None:
+        self.filename, _, _ = file.partition('\.')
         self.parser = Parser(file)
         self.symbol_table = SymbolTable()
+        self.curr_ROM_addr = 0
+        self.binaries = [0 * (2*15)] # ROM
 
     def first_pass(self):
-        pass
+        while self.parser.has_more_commands():
+            match self.parser.command_type:
+                case Command.A_COMMAND:
+                    self.binaries[self.curr_ROM_addr] = bin(int(self.parser.current_cmd)).zfill(16)
+
+                case Command.C_COMMAND:
+                    c_mnem = self.parser.comp()
+                    dest_mnem = self.parser.dest()
+                    jump_mnem = self.parser.jump()
+                    c_bin = "111" + ( Code.comp(c_mnem) + Code.dest(dest_mnem) + Code.jump(jump_mnem) )
+                    assert(len(c_bin) == 16)
+                    self.binaries[self.curr_ROM_addr] = ( c_bin )
+
+                case Command.L_COMMAND:
+                    self.symbol_table.add_entry(self.parser.current_cmd, self.curr_ROM_addr)
+                    
+            self.curr_ROM_addr += 1
+            self.parser.advance()
 
     def second_pass(self):
-        pass # haha
+        pass
+    #         Now go again through the entire program, and parse each line. Each
+    # time a symbolic A-instruction is encountered, namely, @Xxx where Xxx is a symbol
+    # and not a number, look up Xxx in the symbol table. If the symbol is found in the
+    # table, replace it with its numeric meaning and complete the command’s translation.
+    # If the symbol is not found in the table, then it must represent a new variable. To
+    # handle it, add the pair (Xxx, n) to the symbol table, where n is the next available
+    # RAM address, and complete the command’s translation. The allocated RAM
+    # addresses are consecutive numbers, starting at address 16 ( just after the addresses
+    # allocated to the predefined symbols).
+        # if self.parser.command_type() == Command.A_COMMAND:
+        #     symb = self.parser.symbol()
+        #     try:
+        #         instruction = bin(int(symb))[2:].zfill(16)
+        #     except ValueError:
+        #         if not self.symbol_table.contains(symb):
+        #             self.symbol_table.add_entry(symb, 0)
+
+        # Check if command is A-instruction
+            # If symbol, look it up in symbol table
+                # If in table, replace it with numeric meaning and translate
+                # If not in table, new variable -> add new pair to symbol table, where addr is the next available RAM address, and translate
+            # If number, convert to binary and left-pad
+
+        
+        while self.parser.has_more_commands():
+            pass # haha
+
+    def assemble(self):
+        self.first_pass()
+        # get list of commands
+        binaries = []
+        with open(self.filename + ".hack", "w") as f:
+            for cmd in binaries:
+                f.write(cmd + '\n')
 
 
 class Command(Enum):
@@ -36,17 +88,18 @@ class Parser:
         """
         self.line = 0
         self.commands = []
-        self.symb_table = SymbolTable()
 
         with open(input_file, "r") as asm:
             for cmd in asm:
-                if len(cmd) == 0:
-                    continue
                 cmd_no_ws = cmd.replace(" ", "")
                 cmd_no_comment, _, _ = cmd_no_ws.partition("//")
-                self.commands.append(cmd_no_comment)
+                if len( cmd_no_comment ) > 0:
+                    self.commands.append(cmd_no_comment)
 
-        self.current_cmd = self.commands[0]
+        try:
+            self.current_cmd = self.commands[0]
+        except IndexError:
+            raise IndexError("Command list has length 0")
 
     def __str__(self):
         return self.commands
@@ -112,6 +165,8 @@ class Parser:
                 return self.current_cmd.split('=')[1].strip()
             elif self.jump() is not None:
                 return self.current_cmd.split(';')[0].strip()
+            else:
+                return self.current_cmd
             
     def jump(self) -> str | None:
         """Returns the jump mnemonic in the current C-command
@@ -178,37 +233,53 @@ class Code:
         'D|M': '1010101',
     }
 
-    def __init__(self):
-        pass
+    # def __init__(self):
+    #     pass
 
-    def dest(self, cmd: str) -> str:
+    def dest(self, cmd: str | None) -> str:
         return Code.DEST[cmd]
 
     def comp(self, cmd: str) -> str:
         return Code.COMP[cmd]
 
-    def jump(self, cmd: str) -> str:
+    def jump(self, cmd: str | None) -> str:
         return Code.JUMP[cmd]
 
 class SymbolTable:
 
     PREDEF_SYMBOLS = {
-        "SP": "0",
-        "LCL": "1",
-        "ARG": "2",
-        "THIS": "3",
-        "THAT": "4",
-        "SCREEN": "16384",
-        "LCL": "24576",
+        "SP": 0,
+        "LCL": 1,
+        "ARG": 2,
+        "THIS": 3,
+        "THAT": 4,
+        "SCREEN": 16384,
+        "LCL": 24576,
+        **{k:v for (k,v) in zip(list("R" + str(i) for i in range(0, 16)), range(0,16))} # Happy about this line
     }
 
     def __init__(self):
-        self.table: dict = {}
+        self.table: dict = SymbolTable.PREDEF_SYMBOLS
+        self.curr_ram_addr = 16
+        
+    # def check_R_symbol(self, symbol: str) -> bool:
+    #     """Checks if symbol is R symbol
+
+    #     Args:
+    #         symbol (str): Symbol to be checked
+
+    #     Returns:
+    #         bool: True if symbol is R0-R15, False otherwise
+    #     """
+    #     return (symbol[0] == "R" and int(symbol[1:]) < 16)
 
     def add_entry(self, symbol: str, addr: int) -> None:
         """Adds a pair (symbol, addr) to symbol table
         """
-        self.table[symbol] = addr
+        # if self.check_R_symbol(symbol):
+        #     self.table[symbol[1:]] = addr
+        self.table[symbol] = self.curr_ram_addr + addr
+        self.curr_ram_addr += 1
 
     def contains(self, symbol: str) -> bool:
         """Checks whether symbol is present in symbol table
@@ -219,7 +290,19 @@ class SymbolTable:
         Returns:
             bool: True if symbol is in table, False if otherwise
         """
-        return self.table.get(symbol, 0) != 0
+        # return self.check_R_symbol(symbol) or (symbol in self.table)
+        return (symbol in self.table)
 
     def get_addr(self, symbol: str) -> int:
-        return self.table[symbol]
+        """Get address of symbol if in table
+
+        Args:
+            symbol (str): Symbol for lookup
+
+        Returns:
+            int: address symbol represents
+        """
+        if self.check_R_symbol(symbol):
+            return symbol[1:]
+        else:
+            return self.table[symbol]
