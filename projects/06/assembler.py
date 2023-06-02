@@ -10,56 +10,80 @@ class Assembler:
         self.curr_ROM_addr = 0
         self.num_commands = self.parser.num_commands
         self.binaries = [0 for _ in range(self.num_commands)] # ROM
+        self.symbol_line_table: dict = {}
+
+    def convert_to_bin(arg: int) -> str:
+        """Convert integer to 16-bit binary string
+
+        Args:
+            arg (int): integer to be converted
+
+        Returns:
+            str: 16-bit binary representation of input integer
+        """
+        return bin(arg)[2:].zfill(16)
 
     def first_pass(self) -> None:
+        """Performs the first pass of the assembler on the target asm code.
+        In the first pass:
+            - All C commands are converted to binary according to the 'Code' module.
+            - A commands have constant memory addresses converted to binary, and variable addresses added to binaries file as their labels
+            - Pseudocommands have their symbols added to the symbol table
+        """
         while self.parser.has_more_commands():
             match self.parser.command_type():
                 case Command.A_COMMAND:
                     cmd = self.parser.current_cmd.partition('@')[2]
                     try:
                         const_addr = int(cmd)
-                        self.binaries[self.curr_ROM_addr] = bin(const_addr)[2:].zfill(16)
+                        self.binaries[self.curr_ROM_addr] = Assembler.convert_to_bin(const_addr)
                     except:
-                        self.binaries[self.curr_ROM_addr] = str(cmd)
+                        # This leaves all A commands with variables and labels as strings within the binaries list, which on the second pass will
+                        # be looked up on the symbol table
+                        self.binaries[self.curr_ROM_addr] = str(cmd) 
+                    self.curr_ROM_addr += 1
 
                 case Command.C_COMMAND:
                     c_mnem = self.parser.comp()
                     dest_mnem = self.parser.dest()
                     jump_mnem = self.parser.jump()
                     c_bin = "111" + ( Code.comp(c_mnem) + Code.dest(dest_mnem) + Code.jump(jump_mnem) )
-                    assert(len(c_bin) == 16)
                     self.binaries[self.curr_ROM_addr] = ( c_bin )
+                    self.curr_ROM_addr += 1
 
                 case Command.L_COMMAND:
                     cmd = re.match(r'\((.*?)\)', self.parser.current_cmd).group(1)
-                    self.symbol_table.add_entry(cmd)
-                    self.binaries[self.curr_ROM_addr] = cmd
+                    self.symbol_table.add_entry( cmd, addr=self.curr_ROM_addr )
                     
             self.parser.advance()
-            self.curr_ROM_addr += 1
 
     def second_pass(self) -> None:
-        is_bin = lambda cmd: all(char in '01' for char in cmd)
+        """Performs the second pass of the assembler on the target asm code
+        In the second pass:
+            - All non-binary values, i.e. references to variable labels and pseudocommand labels, are looked up on the symbol table
+            and added if not present
+            - All addresses on the symbol table are converted to binary values and placed in the original labels' lines
+            - The list of binary commands is shortened to exclude lines assigned to pseudocommands
+        """
+        is_bin = lambda cmd: all(char in '01' for char in str( cmd )) and (len(str( cmd ))==16)
         for i in range( len( self.binaries ) ):
-            if not is_bin(self.binaries[i]):
-                if self.symbol_table.contains(self.binaries[i]):
-                    self.binaries[i] = bin(self.symbol_table.get_addr(self.binaries[i]))[2:].zfill(16)
-                else:
+            if not is_bin(self.binaries[i]): # If line isn't binary, it must be an A-command pointing to a label
+                if self.symbol_table.contains(self.binaries[i]): # If the table contains the label, it should point to a ROM address with a label
+                    self.binaries[i] = Assembler.convert_to_bin(self.symbol_table.get_addr(self.binaries[i]))
+                else: # if the table doesn't contain the label, it should assign the lowest available addr in memory to the variable
                     self.symbol_table.add_entry(self.binaries[i])
-                    self.binaries[i] = bin(self.symbol_table.get_addr(self.binaries[i]))[2:].zfill(16)
-                print(self.binaries[i])
+                    self.binaries[i] = Assembler.convert_to_bin(self.symbol_table.get_addr(self.binaries[i]))
+
+        self.binaries = self.binaries[:self.curr_ROM_addr] # Drop unnecessary lines for pseudocommands
 
     def assemble(self, output_file: str | None = None) -> None:
-        # print(self.parser)
         self.first_pass()
         self.second_pass()
-        # get list of commands
         op = output_file if output_file else self.filename
         
         with open(op + ".hack", "w") as f:
             for cmd in self.binaries:
                 f.write(str(cmd) + '\n')
-
 
 class Command(Enum):
     A_COMMAND = auto()
@@ -249,7 +273,7 @@ class SymbolTable:
         "THIS": 3,
         "THAT": 4,
         "SCREEN": 16384,
-        "LCL": 24576,
+        "KBD": 24576,
         **{k:v for (k,v) in zip(list("R" + str(i) for i in range(0, 16)), range(0,16))} # Happy about this line
     }
 
@@ -257,11 +281,14 @@ class SymbolTable:
         self.table: dict = SymbolTable.PREDEF_SYMBOLS
         self.curr_ram_addr = 16
         
-    def add_entry(self, symbol: str, addr: int = 0) -> None:
+    def add_entry(self, symbol: str, addr: int | None = None) -> None:
         """Adds a pair (symbol, addr) to symbol table
         """
-        self.table[symbol] = self.curr_ram_addr + addr
-        self.curr_ram_addr += 1
+        if addr:
+            self.table[symbol] = addr
+        else:
+            self.table[symbol] = self.curr_ram_addr
+            self.curr_ram_addr += 1
 
     def contains(self, symbol: str) -> bool:
         """Checks whether symbol is present in symbol table
