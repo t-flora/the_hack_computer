@@ -77,6 +77,12 @@ class Assembler:
         self.binaries = self.binaries[:self.curr_ROM_addr] # Drop unnecessary lines for pseudocommands
 
     def assemble(self, output_file: str | None = None) -> None:
+        """Assemble asm code to binary file
+
+        Args:
+            output_file (str | None, optional): output file name. Defaults to None, such that output file has the same name as 
+                input file minus extension.
+        """
         self.first_pass()
         self.second_pass()
         op = output_file if output_file else self.filename
@@ -86,14 +92,11 @@ class Assembler:
                 f.write(str(cmd) + '\n')
 
 class Command(Enum):
+    """Command enum for identifying A, C, and L commands
+    """
     A_COMMAND = auto()
     C_COMMAND = auto()
     L_COMMAND = auto()
-
-class Block(Enum):
-    DEST = 0
-    COMP = 1
-    JUMP = 2
 
 class Parser:
 
@@ -116,7 +119,6 @@ class Parser:
 
         self.num_commands = len(self.commands)
 
-        # self.advance() # initializes parser line to 0 and 
         try:
             self.current_cmd = self.commands[self.line]
         except IndexError:
@@ -160,10 +162,11 @@ class Parser:
             Returns:
                 str: symbol used to access A register value
         """
-        if self.command_type() == Command.A_COMMAND:
-            return self.current_cmd[1:]
-        elif self.command_type() == Command.L_COMMAND:
-            return re.match(r'\((.*?)\)', self.current_cmd).group(1)
+        match self.command_type():
+            case Command.A_COMMAND:
+                return self.current_cmd[1:]
+            case Command.L_COMMAND:
+                return re.match(r'\((.*?)\)', self.current_cmd).group(1)
 
     def dest(self) -> str | None:
         """Returns the dest mnemonic in the current C-command
@@ -202,6 +205,8 @@ class Parser:
             return None
 
 class Code:
+    """Module for retrieving the bits associated with each portion of a C command
+    """
     DEST = {
         None: '000',
         'M': '001',
@@ -274,7 +279,7 @@ class SymbolTable:
         "THAT": 4,
         "SCREEN": 16384,
         "KBD": 24576,
-        **{k:v for (k,v) in zip(list("R" + str(i) for i in range(0, 16)), range(0,16))} # Happy about this line
+        **{k:v for (k,v) in zip(list("R" + str(i) for i in range(0, 16)), range(0,16))}
     }
 
     def __init__(self):
