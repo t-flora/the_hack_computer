@@ -10,6 +10,6 @@ if __name__ == "__main__":
         print("Usage: python assemble-script.py <input_file> <output_file>")
         sys.exit(1)
     if len(sys.argv) == 2:
-        main(sys.argv[1], sys.argv[1])
+        main(sys.argv[1])
     elif len(sys.argv) == 3:
         main(sys.argv[1], sys.argv[2])

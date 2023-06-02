@@ -3,3 +3,5 @@
 *.sh
 
 .DS_store
+
+**__pycache__

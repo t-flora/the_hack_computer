@@ -4,18 +4,18 @@ import re
 class Assembler:
     
     def __init__(self, file: str) -> None:
-        self.filename, _, self.ext = file.partition('.')
-        assert(self.ext == "asm")
+        self.filename, _, self.ext = file.rpartition('.')
         self.parser = Parser(file)
         self.symbol_table = SymbolTable()
         self.curr_ROM_addr = 0
-        self.binaries = [0 * (2*15)] # ROM
+        self.num_commands = self.parser.num_commands
+        self.binaries = [0 for _ in range(self.num_commands)] # ROM
 
     def first_pass(self) -> None:
         while self.parser.has_more_commands():
-            match self.parser.command_type:
+            match self.parser.command_type():
                 case Command.A_COMMAND: # UNDER ASSUMPTION THAT WILL BE NUMERIC
-                    self.binaries[self.curr_ROM_addr] = bin(int(self.parser.current_cmd)).zfill(16)
+                    self.binaries[self.curr_ROM_addr] = bin(int(self.parser.current_cmd.partition('@')[2]))[2:].zfill(16)
 
                 case Command.C_COMMAND:
                     c_mnem = self.parser.comp()
@@ -28,8 +28,8 @@ class Assembler:
                 case Command.L_COMMAND:
                     self.symbol_table.add_entry(self.parser.current_cmd, self.curr_ROM_addr)
                     
-            self.curr_ROM_addr += 1
             self.parser.advance()
+            self.curr_ROM_addr += 1
 
     def second_pass(self) -> None:
         pass
@@ -55,15 +55,15 @@ class Assembler:
                 # If in table, replace it with numeric meaning and translate
                 # If not in table, new variable -> add new pair to symbol table, where addr is the next available RAM address, and translate
             # If number, convert to binary and left-pad
-
         
         # while self.parser.has_more_commands():
         #     pass
 
     def assemble(self, output_file: str | None = None) -> None:
+        # print(self.parser)
         self.first_pass()
         # get list of commands
-        op = output_file if output_file else self.filename[:-len(self.ext)]
+        op = output_file if output_file else self.filename
         
         with open(op + ".hack", "w") as f:
             for cmd in self.binaries:
@@ -93,18 +93,23 @@ class Parser:
 
         with open(input_file, "r") as asm:
             for cmd in asm:
-                cmd_no_ws = cmd.replace(" ", "")
+                assert(cmd is not None)
+                cmd_no_ws = cmd.strip()
                 cmd_no_comment, _, _ = cmd_no_ws.partition("//")
                 if len( cmd_no_comment ) > 0:
                     self.commands.append(cmd_no_comment)
 
+        self.num_commands = len(self.commands)
+
+        # self.advance() # initializes parser line to 0 and 
         try:
-            self.current_cmd = self.commands[0]
+            self.current_cmd = self.commands[self.line]
         except IndexError:
             raise IndexError("Command list has length 0")
 
-    def __str__(self):
-        return self.commands
+
+    def __str__(self) -> str:
+        return str( self.commands )
 
     def has_more_commands(self) -> bool:
         """Boolean for whether there are more commands in the input
@@ -112,14 +117,14 @@ class Parser:
             Returns:
                 bool: comparison between current line and length of commands
         """
-        return len(self.commands) > self.line
+        return self.line < self.num_commands
 
     def advance(self) -> None:
         """Reads the next comand from the input and makes it the current command 
         """
+        self.line += 1 # I am extremely dumb
         if self.has_more_commands():
-            self.line += 1
-            self.current_cmd = self.commands[self.line-1]
+            self.current_cmd = self.commands[self.line]
 
     def command_type(self) -> Command:
         """Returns teh type of the current command
@@ -238,13 +243,13 @@ class Code:
     # def __init__(self):
     #     pass
 
-    def dest(self, cmd: str | None) -> str:
+    def dest(cmd: str | None) -> str:
         return Code.DEST[cmd]
 
-    def comp(self, cmd: str) -> str:
+    def comp(cmd: str) -> str:
         return Code.COMP[cmd]
 
-    def jump(self, cmd: str | None) -> str:
+    def jump(cmd: str | None) -> str:
         return Code.JUMP[cmd]
 
 class SymbolTable:
