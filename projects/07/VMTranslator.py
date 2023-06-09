@@ -144,7 +144,7 @@ class Parser:
             case other:
                 return self.current_cmd[1]
     
-    def arg2(self) -> int:
+    def arg2(self) -> str:
         if self.command_type() in [Command.C_PUSH, Command.C_POP, Command.C_FUNCTION, Command.C_CALL]:
             return self.current_cmd[2]
         else:
@@ -167,7 +167,13 @@ class CodeWriter:
         self.filename, _, self.ext = output_file.rpartition('.')
         self.output_file = output_file if self.ext == "asm" else output_file + ".asm"
         self.f = open(self.output_file, "w", encoding='ascii')
-        self.stack = []
+        self.stack = [] # What do you do with this stack? Is it so that every time you have a push or pop command and you 
+        # Read a value from the segment address specified and append or you pop it and set the segment address to the value popped
+        # This is the role of that D register right? Since you are storing values that you need to write
+        # But don't the references to @SP do that automatically? Like why do I need this list
+        
+        # Okay so the stack would do what? Especially if the pop and push commands are in the Translator class and not in the 
+        # CodeWriter?
 
     def __enter__(self):
         return self
@@ -208,16 +214,63 @@ class CodeWriter:
         # Push: stack[SP++] = x -> @SP; A=M; M=D; @SP; M=M+1
         # Pop: x = stack[SP--] -> @SP; A=M; D=M; @SP; M=M-1
         segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment]
-        D_setter_cmds = [ segment_asm, "D=M", f"A={idx}", "D=D+A" ] # After this, we have in D the address of the value we want within segment[index]
+        match segment:
+            case "static":
+                idx_asm = "@Foo." + idx
+                segment_is_constant = False
+            case "constant":
+                idx_asm = f"@{idx}"
+                segment_is_constant = True
+            case other:
+                idx_asm = f"@{idx}"
+                segment_is_constant = False
         if cmd == Command.C_PUSH:
-            cmds = D_setter_cmds + ["@SP", "A=M", "M=D", "@SP", "M=M+1"]
+            """
+                @segment
+                D=M
+                @idx
+                A=D+A
+                D=M // set the value of D to contents of RAM[segmentBaseAddr + idx]
+
+                @SP
+                A=M
+                M=D // add value in D to top of stack
+                @SP
+                M=M+1 // increment stack pointer address to next available address
+            """
+            if segment_is_constant:
+                """
+                    @idx
+                    D=A
+                """
+                cmds = [ idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ]
+            else:
+                cmds = [ segment_asm, "D=M", idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ]
             command = CodeWriter.concat_asm_commands(cmds)
-        elif cmd == Command.C_POP:
-            cmds = ["@SP", "A=M", "D=M", "@SP", "M=M-1"] # + D_setter_cmds // this is very incorrect. The value at segment[idx] needs
-            # to be updated to D (popped stack value)
+        elif cmd == Command.C_POP: # The lesson for the pop operation is to definitely consider the full range of `comp` functions available
+            """
+            @segment
+            D=M // get base address
+            @idx
+            D=D+A // add index to base
+            
+            @SP
+            M=M-1 // SP--
+            A=M+1 // go to original SP address
+            M=D // store address being popped to
+            
+            @SP
+            D=M //
+            A=A+1 // Return to where we stored address
+            A=M // Go to address stored in previous stack pointer address
+            M=D // write address
+            """
+            cmds = [ segment_asm, "D=M", f"@{idx}", "D=D+A", "@SP", "M=M-1", "A=M+1", "M=D", "@SP", "D=M", "A=A+1", "A=M", "M=D" ]
             command = CodeWriter.concat_asm_commands(cmds)
+        
+
         self.f.write("//" + str(cmd) + "\n") # write command as comment for debugging
-        self.f.write(command + "\n") # write command as comment for debugging
+        self.f.write(command + "\n") # write translated command
 
     def close(self) -> None:
         self.f.close()
