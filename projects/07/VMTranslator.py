@@ -157,8 +157,10 @@ class CodeWriter:
         "argument": "ARG",
         "this": "THIS",
         "that": "THAT",
-        # "pointer": "THIS",
-        # "pointer": "THAT",
+        "pointer": {
+                0: "THIS",
+                1: "THAT",
+            },
         "temp": "TEMP",
         # "": **{k:v for (k,v) in zip(list("R" + str(i) for i in range(13, 16)), range(13, 16))}
     }
@@ -189,13 +191,69 @@ class CodeWriter:
         self.f.write("//" + str(cmd) + "\n") # write command as comment for debugging
         match cmd:
             case "add":
-                # Pop from stack => write_push_pop(Command.C_POP, segment [SOMETHING THAT TRANSLATES TO stackBase], @SP)
+                # Pop from stack => write_push_pop(Command.C_POP, segment [SOMETHING THAT TRANSLATES TO stackBase], )
                 # Pop from stack => write_push_pop(Command.C_POP, segment [SOMETHING THAT TRANSLATES TO stackBase], @SP)
                 # Push to stack addition of both => write_push_pop(Command.C_PUSH, segment stackBase, @SP)
-                pass
+                self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
+                self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
+                """
+                @THIS
+                D=M
+                @THAT
+                A=M
+                M=D+A // Store result in THAT
+                
+                @PUSH_OP
+                """
+                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "M=D+A"])               
+                self.f.write(commands + "\n") # write translated command
+                self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case "sub":
-                pass
+                self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
+                self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
+                """
+                @THIS
+                D=M
+                @THAT
+                A=M
+                M=A-D // Store result in THAT
+                
+                @PUSH_OP
+                """
+                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "M=A-D"])               
+                self.f.write(commands + "\n") # write translated command
+                self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case "eq":
+                self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
+                self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
+                """
+                @THIS
+                D=M
+                @THAT
+                A=M
+                D=D-A 
+
+                @PUSH_TRUE
+                D;JEQ
+                
+                @PUSH_FALSE
+                D;JNE
+
+                (PUSH_TRUE<N>) // my guy you're using Python just have a global counter for each type of label
+                    @THAT
+                    M=1
+                    @CONTINUE_EXE<N>
+                    0;JMP
+                (PUSH_FALSE<N>)
+                    @THAT
+                    M=0
+                    @CONTINUE_EXE<N>
+                    0;JMP
+                (CONTINUE_EXE<N>)
+                """
+                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "D=D-A"])               
+                self.f.write(commands + "\n") # write translated command
+                self.write_push_pop(Command.C_PUSH, "pointer", 1)
                 pass
             case "gt":
                 pass
@@ -209,21 +267,18 @@ class CodeWriter:
                 pass
     
     def write_push_pop(self, cmd: Command.C_PUSH | Command.C_POP, segment: str, idx = int) -> None:
-        # Segment + idx -> D
-        # Modify address to baseAddr + idx => @segment; D=M; A=idx; D=D+A; || from here things get a bit weird: A=D; M=D;
         # Push: stack[SP++] = x -> @SP; A=M; M=D; @SP; M=M+1
         # Pop: x = stack[SP--] -> @SP; A=M; D=M; @SP; M=M-1
-        segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment]
+        segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment][idx] if (segment=="pointer") else "@" + CodeWriter.VIRTUAL_REGS[segment]
+        segment_is_constant = False
+        idx_asm = f"@{idx}"
         match segment:
             case "static":
                 idx_asm = "@Foo." + idx
-                segment_is_constant = False
             case "constant":
-                idx_asm = f"@{idx}"
                 segment_is_constant = True
-            case other:
-                idx_asm = f"@{idx}"
-                segment_is_constant = False
+            # case "pointer":
+            # case other:
         if cmd == Command.C_PUSH:
             """
                 @segment
@@ -243,10 +298,9 @@ class CodeWriter:
                     @idx
                     D=A
                 """
-                cmds = [ idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ]
+                commands = CodeWriter.concat_asm_commands([ idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
             else:
-                cmds = [ segment_asm, "D=M", idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ]
-            command = CodeWriter.concat_asm_commands(cmds)
+                commands = CodeWriter.concat_asm_commands([ segment_asm, "D=M", idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
         elif cmd == Command.C_POP: # The lesson for the pop operation is to definitely consider the full range of `comp` functions available
             """
             @segment
@@ -266,11 +320,10 @@ class CodeWriter:
             M=D // write address
             """
             cmds = [ segment_asm, "D=M", f"@{idx}", "D=D+A", "@SP", "M=M-1", "A=M+1", "M=D", "@SP", "D=M", "A=A+1", "A=M", "M=D" ]
-            command = CodeWriter.concat_asm_commands(cmds)
-        
+            commands = CodeWriter.concat_asm_commands(cmds)
 
         self.f.write("//" + str(cmd) + "\n") # write command as comment for debugging
-        self.f.write(command + "\n") # write translated command
+        self.f.write(commands + "\n") # write translated command
 
     def close(self) -> None:
         self.f.close()
