@@ -9,54 +9,57 @@ class VMTranslator:
     # TESTS:
     #   1. SimpleAdd: Pushes to constants to the stack and adds them up
     #   2. StackTest: Pushes some constants onto the stack and tests all arithmetic-logical commands
-    #   3. BasicTest: Execute push, pop, and arithmetic commands using the memory segments
-    #   4. PointerTest: Executed push, pop, and arithmetic commands using segments `pointer`, `this`, and `that`
-    #   5. StaticTest: Executes push, pop, and arithmetic commands using constants and the `static` memory segment
+    #   3. [DONE] BasicTest: Execute push, pop, and arithmetic commands using the memory segments
+    #   4. [FAILED] PointerTest: Executed push, pop, and arithmetic commands using segments `pointer`, `this`, and `that`
+    #   5. [FAILED] StaticTest: Executes push, pop, and arithmetic commands using constants and the `static` memory segment
     
     # This will have to be rewritten
-    VIRTUAL_REGS = {
-        "SP": 0,
-        "LCL": 1,
-        "ARG": 2,
-        "THIS": 3,
-        "THAT": 4,
-        "TEMP": 5,
-        **{k:v for (k,v) in zip(list("R" + str(i) for i in range(13, 16)), range(13, 16))}
-    }
+    # REGS = {
+    #     "SP": 0,
+    #     "LCL": 1,
+    #     "ARG": 2,
+    #     "THIS": 3,
+    #     "THAT": 4,
+    #     "TEMP": 5,
+    #     **{k:v for (k,v) in zip(list("R" + str(i) for i in range(13, 16)), range(13, 16))}
+    # }
 
     # BASE_ADDRS = { # Segment initializations are an issue for chapter 8
     # }
 
-    STACK_LEN = 255-16+1
+    # STACK_LEN = 255-16+1
     
     def __init__(self, input_file: str, output_file: str | None = None):
         self.parser = Parser(input_file=input_file)
         self.code_writer = CodeWriter(output_file=output_file)
-    
-    def pop(self, num: int) -> list:
-        n = len(self.code_writer.stack)
-        if num > len(self.code_writer.stack):
-            raise ValueError("Stack underflow: there are fewer items in the stack than are being popped")
-        vals = self.code_writer.stack[-num:] # There must be a smarter way of doing this, but this will do for now
-        del(self.code_writer.stack[-num:]) # Side effect of modifying the stack in-place
-        assert(len(self.code_writer.stack) == (n - num))
-        return vals
-
-    def push(self, val: bool | int) -> None:
-        if len(self.code_writer.stack) + 1 > VMTranslator.STACK_LEN:
-            raise ValueError("Stack overflow: pushing items to address higher than maximum allowed")
-        self.code_writer.stack.append(val)
 
     def gen_terminating_loop(self) -> None:
         """Add terminating loop to asm code in CodeWriter output file
         """
-        pass
+        """
+        (END_LOOP)
+            @END_LOOP
+            0;JMP
+        """
+        cmd = "(END_LOOP)\n@END_LOOP\n0;JMP"
+        self.code_writer.f.write("// Concluding infinite loop\n")
+        self.code_writer.f.write(cmd)
 
     def translate(self):
         """Loops through commands on Parser object, pass each through CodeWriter methods, and obtain final file
         """
-        pass
-        
+        # print(self.parser)
+        while self.parser.has_more_commands():
+            current_cmd_type = self.parser.command_type()
+            arg1 = self.parser.arg1()
+            if current_cmd_type == Command.C_ARITHMETICAL_LOGICAL:
+                self.code_writer.write_arithmetic(arg1)
+            elif current_cmd_type == Command.C_POP or current_cmd_type == Command.C_PUSH:
+                arg2 = self.parser.arg2()
+                self.code_writer.write_push_pop(current_cmd_type, segment=arg1, idx=arg2)
+            self.parser.advance()
+        self.gen_terminating_loop()
+        self.code_writer.close()
 
 class Command(Enum):
     """Command enum for identifying VM commands
@@ -76,15 +79,7 @@ class Parser:
     CMD_SET = {
        'push': Command.C_PUSH,
        'pop': Command.C_POP,
-    #    'add': Command.C_ARITHMETICAL_LOGICAL,
-    #    'sub': Command.C_ARITHMETICAL_LOGICAL,
-    #    'eq': Command.C_ARITHMETICAL_LOGICAL,
-    #    'gt': Command.C_ARITHMETICAL_LOGICAL,
-    #    'lt': Command.C_ARITHMETICAL_LOGICAL,
-    #    'and': Command.C_ARITHMETICAL_LOGICAL,
-    #    'or': Command.C_ARITHMETICAL_LOGICAL,
-    #    'not': Command.C_ARITHMETICAL_LOGICAL,
-       **{k:Command.C_ARITHMETICAL_LOGICAL for k in ['add', 'sub', 'eq', 'gt', 'lt', 'and', 'or', 'not']},
+       **{k:Command.C_ARITHMETICAL_LOGICAL for k in ['add', 'sub', 'neg', 'eq', 'gt', 'lt', 'and', 'or', 'not']},
     }
 
     def __init__(self, input_file: str) -> None:
@@ -93,21 +88,22 @@ class Parser:
         Args:
             input_file (str): assembly file path
         """
-        # self.line = 0
-        # self.commands = []
+        self.line: int = 0
+        self.commands: list = []
 
         with open(input_file, "r") as asm:
             for cmd in asm:
-                cmd_no_comment, _, _ = cmd_no_ws.partition("//")
-                cmd_no_ws = cmd.split()
+                cmd_no_comment, _, _ = cmd.partition("//")
+                cmd_no_ws = cmd_no_comment.split()
                 if len( cmd_no_ws ) > 0:
-                    self.commands.append(cmd_no_comment)
+                    self.commands.append(cmd_no_ws)
 
-        self.num_commands = len(self.commands)
+        self.num_commands: int = len(self.commands)
 
         try:
-            self.current_cmd = self.commands[self.line]
+            self.current_cmd: str = self.commands[self.line]
         except IndexError:
+            print("Input file: " + input_file)
             raise IndexError("Command list has length 0")
 
 
@@ -146,9 +142,9 @@ class Parser:
             case other:
                 return self.current_cmd[1]
     
-    def arg2(self) -> str:
+    def arg2(self) -> int:
         if self.command_type() in [Command.C_PUSH, Command.C_POP, Command.C_FUNCTION, Command.C_CALL]:
-            return self.current_cmd[2]
+            return int(self.current_cmd[2])
         else:
             raise ValueError("arg2 should only be called for push, pop, function and call commands")
 
@@ -159,12 +155,12 @@ class CodeWriter:
         "argument": "ARG",
         "this": "THIS",
         "that": "THAT",
+        "temp": "5",
+        "static": "16",
         "pointer": {
                 0: "THIS",
                 1: "THAT",
             },
-        "temp": "TEMP",
-        # "": **{k:v for (k,v) in zip(list("R" + str(i) for i in range(13, 16)), range(13, 16))}
     }
     
     def __init__(self, output_file: str | None = None) -> None:
@@ -175,13 +171,6 @@ class CodeWriter:
         self.output_file = self.filename + "." + self.ext
         self.f = open(self.output_file, "w", encoding='ascii')
         self.n = 0 # Iteration of a given assembly block label
-        self.stack = [] # What do you do with this stack? Is it so that every time you have a push or pop command and you 
-        # Read a value from the segment address specified and append or you pop it and set the segment address to the value popped
-        # This is the role of that D register right? Since you are storing values that you need to write
-        # But don't the references to @SP do that automatically? Like why do I need this list
-        
-        # Okay so the stack would do what? Especially if the pop and push commands are in the Translator class and not in the 
-        # CodeWriter?
 
     def __enter__(self):
         return self
@@ -190,7 +179,7 @@ class CodeWriter:
         self.f.close()
 
     def concat_asm_commands(cmd_list: list[str]) -> str:
-        return '\n'.join() + '\n'
+        return '\n'.join(cmd_list) + '\n'
 
     def write_arithmetic(self, cmd: str) -> None:
         self.f.write("//" + str(cmd) + "\n") # write command as comment for debugging
@@ -203,40 +192,66 @@ class CodeWriter:
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 """
                 @THIS
-                D=M
+                A=M
+                D=M // Was operating on the addresses at first, not the values at those addresses
                 @THAT
                 A=M
-                M=D+A // Store result in THAT
+                M=D+M // Store result in THAT
                 
                 @PUSH_OP
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "M=D+A"])
-                self.f.write(commands + "\n") # write translated command
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "M=D+M"])
+                self.f.write(commands_pre) # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
+                """
+                @THIS
+                A=M
+                M=0
+                @THAT
+                A=M
+                M=0
+                """
+                # commands_post = CodeWriter.concat_asm_commands(["@THIS", "A=M", "M=0", "@THAT", "A=M", "M=0"])
+                # self.f.write(commands_post)
             case "sub":
                 self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 """
                 @THIS
+                A=M
                 D=M
                 @THAT
                 A=M
-                M=A-D // Store result in THAT
+                M=M-D // Store result in THAT -- ( that - this )
                 
                 @PUSH_OP
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "M=A-D"])
-                self.f.write(commands + "\n") # write translated command
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "M=M-D"])
+                self.f.write(commands_pre + "\n") # write translated command
+                self.write_push_pop(Command.C_PUSH, "pointer", 1)
+
+                # commands_post = CodeWriter.concat_asm_commands(["@THIS", "A=M", "M=0", "@THAT", "A=M", "M=0"])
+                # self.f.write(commands_post)
+            case "neg":
+                self.write_push_pop(Command.C_POP, "pointer", 1)
+                """
+                @THAT
+                A=M
+                M=-M
+                """
+                commands_pre = CodeWriter.concat_asm_commands(["@THAT", "A=M", "M=-M"])
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case "eq":
                 self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 f"""
                 @THIS
+                A=M
                 D=M
                 @THAT
                 A=M
-                D=D-A 
+                D=D-M 
 
                 @PUSH_TRUE<{self.n}>
                 D;JEQ
@@ -256,14 +271,14 @@ class CodeWriter:
                     0;JMP
                 (CONTINUE_EXE<{self.n}>)
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M",
-                                                           "D=D-A", f"@PUSH_TRUE<{self.n}>", "D;JEQ",
-                                                           f"@PUSH_FALSE<{self.n}>", "D;JNE",
-                                                           f"(PUSH_TRUE<{self.n}>)", "@THAT", "M=1", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
-                                                           f"(PUSH_FALSE<{self.n}>)", "@THAT", "M=0", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
-                                                           f"(CONTINUE_EXE<{self.n}>)"
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "D=D-M",
+                                                                f"@PUSH_TRUE<{self.n}>", "D;JEQ",
+                                                                f"@PUSH_FALSE<{self.n}>", "D;JNE",
+                                                                f"(PUSH_TRUE<{self.n}>)", "@THAT", "M=1", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
+                                                                f"(PUSH_FALSE<{self.n}>)", "@THAT", "M=0", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
+                                                                f"(CONTINUE_EXE<{self.n}>)"
                                                            ])
-                self.f.write(commands + "\n") # write translated command
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
                 self.n += 1
             case "gt":
@@ -271,10 +286,11 @@ class CodeWriter:
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 f"""
                 @THIS
+                A=M
                 D=M
                 @THAT
                 A=M
-                D=D-A 
+                D=D-M 
 
                 @PUSH_TRUE<{self.n}>
                 D;JGT
@@ -294,14 +310,14 @@ class CodeWriter:
                     0;JMP
                 (CONTINUE_EXE<{self.n}>)
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M",
-                                                           "D=D-A", f"@PUSH_TRUE<{self.n}>", "D;JGT",
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "D=D-M",
+                                                           f"@PUSH_TRUE<{self.n}>", "D;JGT",
                                                            f"@PUSH_FALSE<{self.n}>", "D;JLE",
                                                            f"(PUSH_TRUE<{self.n}>)", "@THAT", "M=1", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
                                                            f"(PUSH_FALSE<{self.n}>)", "@THAT", "M=0", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
                                                            f"(CONTINUE_EXE<{self.n}>)"
                                                            ])
-                self.f.write(commands + "\n") # write translated command
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
                 self.n += 1
             case "lt":
@@ -332,14 +348,14 @@ class CodeWriter:
                     0;JMP
                 (CONTINUE_EXE<{self.n}>)
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M",
-                                                           "D=D-A", f"@PUSH_TRUE<{self.n}>", "D;JLT",
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "D=D-M",
+                                                           f"@PUSH_TRUE<{self.n}>", "D;JLT",
                                                            f"@PUSH_FALSE<{self.n}>", "D;JGE",
                                                            f"(PUSH_TRUE<{self.n}>)", "@THAT", "M=1", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
                                                            f"(PUSH_FALSE<{self.n}>)", "@THAT", "M=0", f"@CONTINUE_EXE<{self.n}>", "0;JMP",
                                                            f"(CONTINUE_EXE<{self.n}>)"
                                                            ])
-                self.f.write(commands + "\n") # write translated command
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
                 self.n += 1
             case "and":
@@ -347,64 +363,84 @@ class CodeWriter:
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 f"""
                 @THIS
+                A=M
                 D=M
                 @THAT
                 A=M
-                D=D&A 
+                D=D&M 
                 @THAT
                 M=D
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "D=D&A", "@THAT", "M=D"])
-                self.f.write(commands + "\n") # write translated command
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "D=D&M", "@THAT", "M=D"])
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case "or":
                 self.write_push_pop(Command.C_POP, "pointer", 0) # Pop into THIS
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 f"""
                 @THIS
+                A=M
                 D=M
                 @THAT
                 A=M
-                D=D|A 
+                D=D|M 
                 @THAT
                 M=D
                 """
-                commands = CodeWriter.concat_asm_commands(["@THIS", "D=M", "@THAT", "A=M", "D=D|A", "@THAT", "M=D"])
-                self.f.write(commands + "\n") # write translated command
+                commands_pre = CodeWriter.concat_asm_commands(["@THIS", "A=M", "D=M", "@THAT", "A=M", "D=D|M", "@THAT", "M=D"])
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case "not":
                 self.write_push_pop(Command.C_POP, "pointer", 1) # Pop into THAT
                 f"""
                 @THAT
-                D=M
-                D=!D
-                @THAT
-                M=D
+                A=M
+                M=!M
                 """
-                commands = CodeWriter.concat_asm_commands(["@THAT", "D=M", "D=!D", "@THAT", "M=D"])
-                self.f.write(commands + "\n") # write translated command
+                commands_pre = CodeWriter.concat_asm_commands(["@THAT", "A=M", "M=!M"])
+                self.f.write(commands_pre + "\n") # write translated command
                 self.write_push_pop(Command.C_PUSH, "pointer", 1)
             case other:
                 raise ValueError("Invalid VM command passed to arithmetic writer")
     
-    def write_push_pop(self, cmd: Command.C_PUSH | Command.C_POP, segment: str, idx = int) -> None:
+    def write_push_pop(self, cmd: Command, segment: str, idx: int) -> None:
         # Push: stack[SP++] = x -> @SP; A=M; M=D; @SP; M=M+1
         # Pop: x = stack[SP--] -> @SP; A=M; D=M; @SP; M=M-1
-        segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment][idx] if (segment=="pointer") else "@" + CodeWriter.VIRTUAL_REGS[segment]
         segment_is_constant = False
         idx_asm = f"@{idx}"
         match segment:
             case "static":
-                idx_asm = "@Foo." + idx
+                segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment]
+                idx_asm = f"@Foo.{idx}"
+            case "pointer":
+                segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment][idx]
+                idx_asm = "@0"
             case "constant":
-                segment_is_constant = True
+                pass
+            case _:
+                segment_asm = "@" + CodeWriter.VIRTUAL_REGS[segment]
         if cmd == Command.C_PUSH:
             """
+                // If segment == temp
+                @TEMP
+                D=A
+                @idx
+                A=D+A
+                D=M
+                // endif
+
+                // If segment == constant
+                @idx
+                D=A
+                // endif
+
+                // Else
                 @segment
                 D=M
                 @idx
                 A=D+A
                 D=M // set the value of D to contents of RAM[segmentBaseAddr + idx]
+                // endelse
 
                 @SP
                 A=M
@@ -412,37 +448,61 @@ class CodeWriter:
                 @SP
                 M=M+1 // increment stack pointer address to next available address
             """
-            if segment_is_constant:
-                """
-                    @idx
-                    D=A
-                """
-                commands = CodeWriter.concat_asm_commands([ idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
+            if segment == "temp":
+                commands = CodeWriter.concat_asm_commands([ segment_asm, "D=A", f"{idx_asm} // @idx", "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
+            elif segment == "constant":
+                commands = CodeWriter.concat_asm_commands([ idx_asm, "D=A", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
             else:
-                commands = CodeWriter.concat_asm_commands([ segment_asm, "D=M", idx_asm, "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
+                commands = CodeWriter.concat_asm_commands([ segment_asm, "D=M", f"{idx_asm} // @idx", "A=D+A", "D=M", "@SP", "A=M", "M=D", "@SP", "M=M+1" ])
         elif cmd == Command.C_POP: # The lesson for the pop operation is to definitely consider the full range of `comp` functions available
             """
+            // NEW IMPLEMENTATION!
+            // If segment == temp
+            @TEMP
+            D=A
+            @idx
+            D=D+A
+            // endif
+            
+            // If segment != temp
             @segment
             D=M // get base address
             @idx
-            D=D+A // add index to base
+            D=D+A // add index to base --> D = *(segment) + idx
+            // endif
             
             @SP
-            M=M-1 // SP--
-            A=M+1 // go to original SP address
+            A=M // go to original SP address
             M=D // store address being popped to
             
             @SP
-            D=M //
+            M=M-1 // SP--
+            A=M
+            D=M
+            M=0 // Clear address in SP /////////////// CHANGE
             A=A+1 // Return to where we stored address
-            A=M // Go to address stored in previous stack pointer address
-            M=D // write address
+            A=M
+            M=D
+
+            //// CHANGE
+            @SP
+            A=M+1
+            M=0 // Clear address in SP+1
             """
-            cmds = [ segment_asm, "D=M", f"@{idx}", "D=D+A", "@SP", "M=M-1", "A=M+1", "M=D", "@SP", "D=M", "A=A+1", "A=M", "M=D" ]
+            # new impl
+            if segment == "temp":
+                # self.f.write(f"// this is a temp command with {segment_asm}; D=A, {idx_asm}...")
+                cmds = [ segment_asm, "D=A", f"{idx_asm} // @idx", "D=D+A", "@SP", "A=M", "M=D", "@SP", "M=M-1",
+                    "A=M", "D=M", "M=0", "A=A+1", "A=M", "M=D", "@SP", "A=M+1", "M=0" ]
+            else:
+                cmds = [ segment_asm, "D=M", f"{idx_asm} // @idx", "D=D+A", "@SP", "A=M", "M=D", "@SP", "M=M-1",
+                    "A=M", "D=M", "M=0", "A=A+1", "A=M", "M=D", "@SP", "A=M+1", "M=0" ]
+            # first impl
+            # cmds = [ segment_asm, "D=M", f"{idx_asm} // @idx", "D=D+A", "@SP", "M=M-1", "A=M+1", "M=D", "@SP", "D=M", "A=M+1", "A=M", "M=D" ]
             commands = CodeWriter.concat_asm_commands(cmds)
 
-        self.f.write("//" + str(cmd) + "\n") # write command as comment for debugging
-        self.f.write(commands + "\n") # write translated command
+        self.f.write(f"// {str(cmd)} { str(segment) } { str(idx) }\n") # write command as comment for debugging
+        self.f.write(commands) # write translated command
 
     def close(self) -> None:
         self.f.close()
